@@ -1,0 +1,10 @@
+let func = a -> {
+  return a
+}
+
+let a = 0
+let b = func(a)
+a = 1
+// Should print
+print(a)
+print(b)

@@ -1,0 +1,3 @@
+Shortcuts:
+
+alias compile='python3 compiler.py -f'
