@@ -28,5 +28,5 @@ print_line("Semantic analysis")
 analysis = Analyzer.verify_ast(ast_root, None)
 
 print_line("Generate LLVM IR")
-llvm_ir = Generator.generate_ir(ast_root)
+llvm_ir = Generator.generate_ir_top_level(ast_root)
 print(llvm_ir)
