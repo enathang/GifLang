@@ -42,7 +42,7 @@ def parse_token(token_list, index, parent_token):
     
       node.add_child(l_assoc)
       node.add_child(r_assoc)
-      return node, r_assoc_n+1
+      return node, r_assoc_n
     
     if (token.type == TokenType.SYMBOL):
       return node, index + 1        

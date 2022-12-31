@@ -65,7 +65,6 @@ def generate_ir(node):
     alloca = builder.alloca(int)
     builder.store(value_ir, alloca)
     named_values[key] = alloca
-    builder.ret(int(0))
 
   if (node.token.type == TokenType.LITERAL):
     cons = ir.Constant(context, int(node.token.value))
@@ -75,6 +74,8 @@ def generate_ir(node):
   if (node.token.type == TokenType.SCOPE):
     for child in node.children:
       generate_ir(child)
+  
+    builder.ret(int(0))
 
   return module
 
