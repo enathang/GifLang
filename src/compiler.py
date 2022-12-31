@@ -3,6 +3,7 @@ import argparse
 import lexer as Lexer
 import parser as Parser
 import semantic_analyzer as Analyzer
+import llvm_generator as Generator
 
 argparser = argparse.ArgumentParser()
 argparser.add_argument("-f", "--file")
@@ -25,3 +26,7 @@ print(ast_root)
 
 print_line("Semantic analysis")
 analysis = Analyzer.verify_ast(ast_root, None)
+
+print_line("Generate LLVM IR")
+llvm_ir = Generator.generate_ir(ast_root)
+print(llvm_ir)
