@@ -35,3 +35,23 @@ def test_simple_func_invoc():
   tokens = Lexer.tokenize(line)
 
   assert expected_tokens == tokens
+
+
+def test_type_lexing():
+  expected_type_results = {
+    "5": Token(TokenType.LITERAL_NUM, "5"),
+    "999": Token(TokenType.LITERAL_NUM, "999"),
+    "0": Token(TokenType.LITERAL_NUM, "0"),
+    "'c'": Token(TokenType.LITERAL_CHAR, "c"),
+    "'5'": Token(TokenType.LITERAL_CHAR, "5"),
+    "true": Token(TokenType.LITERAL_BOOL, "true"),
+    "false": Token(TokenType.LITERAL_BOOL, "false"),
+    "\"str\"": Token(TokenType.LITERAL_STR, "str"),
+    "\"true\"": Token(TokenType.LITERAL_STR, "true"),
+    "\"5\"": Token(TokenType.LITERAL_STR, "5"),
+   }
+
+  for test_string in expected_type_results.keys():
+    token_list = Lexer.tokenize(test_string)
+    assert 1 == len(token_list)
+    assert expected_type_results[test_string] == token_list[0]

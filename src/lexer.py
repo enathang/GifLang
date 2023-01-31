@@ -5,7 +5,7 @@ import re
 
 class TokenType(Enum):
     SCOPE = 0
-    LITERAL = 1  # 1.0, 'x'
+    LITERAL = 1
     WHITESPACE = 4
     OPERATOR = 8  # +, -, =
     KEYWORD = 9  # let, if
@@ -13,9 +13,16 @@ class TokenType(Enum):
     MID_SEPARATOR = 11
     CLOSE_SEPARATOR = 12  # ), ], }
     IDENTIFIER = 13  # a, i, func_name
+    LITERAL_NUM = 14
+    LITERAL_BOOL = 15
+    LITERAL_CHAR = 16
+    LITERAL_STR = 17
+    UNKNOWN = 18
 
+    '''
     def __eq__(self, other):
         return self.name == other.name and self.value == other.value
+    '''
 
 
 @dataclass
@@ -53,9 +60,12 @@ token_map = {
     "^{\Z|^\(\Z|^\[\Z": TokenType.OPEN_SEPARATOR,
     "^\}\Z|^\)\Z|^\]\Z": TokenType.CLOSE_SEPARATOR,
     "^,\Z": TokenType.MID_SEPARATOR,
-    "^true\Z|^false\Z": TokenType.LITERAL,
-    "^[0-9]{1,}(?!\s)\Z": TokenType.LITERAL,
-    "['[A-Za-z0-9]{1,}']": TokenType.LITERAL,
+    "^true\Z|^false\Z": TokenType.LITERAL_BOOL,
+    "^[0-9]+\Z": TokenType.LITERAL_NUM,
+    "^\'[A-Za-z0-9]{0,}\Z": TokenType.UNKNOWN,  # Unclosed char
+    "^\'[A-Za-z0-9]\'\Z": TokenType.LITERAL_CHAR,
+    "^\"[A-Za-z0-9]{0,}\Z": TokenType.UNKNOWN,  # Unclosed str
+    "^\"[A-Za-z0-9]{0,}\"\Z": TokenType.LITERAL_STR,
     "^[A-Za-z]{1,}\Z": TokenType.IDENTIFIER,
     "^\s$": TokenType.WHITESPACE,
 }
@@ -90,6 +100,11 @@ def determine_token_type(string, next_char, token_map):
 def determine_token(plaintext, next_char, token_map):
     token_type = determine_token_type(plaintext, next_char, token_map)
     if (token_type is not None):
+        if (token_type == TokenType.LITERAL_CHAR):
+            plaintext = plaintext[1:-1]  # Remove ''
+        elif (token_type == TokenType.LITERAL_STR):
+            plaintext = plaintext[1:-1]  # Remove ""
+
         return Token(token_type, plaintext)
 
     return None

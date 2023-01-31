@@ -1,18 +1,22 @@
-from parser import BlockNode, BinOpNode, FunctionDefNode, FunctionInvocNode, ReturnNode, ValueNode
+from src.parser import BlockNode, BinOpNode, FunctionDefNode, FunctionInvocNode, ReturnNode, \
+  VarNode, LiteralNode, LangType
 
 from llvmlite import ir
 from llvmlite import binding as llvm
 
-# Define types here
+# Define LLVM types here
 int_t = ir.IntType(32)
+char_t = ir.IntType(32)
+bool_t = ir.IntType(1)
 void_t = ir.VoidType()
-print_func_type = ir.FunctionType(void_t, [])
+
+void_func_type = ir.FunctionType(void_t, [])
 
 
 class Context:
   def __init__(self, module_name):
     self.module = ir.Module(module_name)
-    self.entry_function = ir.Function(self.module, print_func_type, "entry_function")
+    self.entry_function = ir.Function(self.module, void_func_type, "entry_function")
     self.entry_block = self.entry_function.append_basic_block('entry')
     self.builder = ir.IRBuilder(self.entry_block)
     self.named_values = {}
@@ -62,7 +66,7 @@ def generate_alloca(name, type, context):
 
 
 def generate_assignment_ir(node, context):
-  key = node.left.value.value
+  key = node.left.value
   value = generate_ir(node.right, context)
 
   # Allocate memory for the variable, store it, and add the pointer to the values table
@@ -97,16 +101,22 @@ def generate_block_ir(node, context):
   return statements_ir
 
 
-def generate_value_ir(node, context):
-  if (node.is_literal):
-    return ir.Constant(int_t, node.value.value)  # TODO: Expand to non-int types
-  else:
-    var_name = node.value.value
-    var_addr = context.named_values.get(var_name)
-    if (var_addr is None):
-      raise Exception(f"Undeclared variable {var_name} used")
+def generate_literal_ir(node: LiteralNode):
+  type_map = {
+    LangType.INT: int_t,
+    LangType.CHAR: char_t,
+    LangType.BOOL: bool_t
+  }
 
-    return context.builder.load(var_addr, var_name)
+  return ir.Constant(type_map[node.type], node.value)
+
+def generate_var_ir(node: VarNode, context: Context):
+  var_name = node.value
+  var_addr = context.named_values.get(var_name)
+  if (var_addr is None):
+    raise Exception(f"Undeclared variable {var_name} used")
+
+  return context.builder.load(var_addr, var_name)
 
 
 def get_type_of_value(node, context):
@@ -182,8 +192,10 @@ def generate_ir(node, context):
     return generate_block_ir(node, context)
   elif (isinstance(node, BinOpNode)):
     return generate_binop_ir(node, context)
-  elif (isinstance(node, ValueNode)):
-    return generate_value_ir(node, context)
+  elif (isinstance(node, VarNode)):
+    return generate_var_ir(node, context)
+  elif (isinstance(node, LiteralNode)):
+    return generate_literal_ir(node)
   elif (isinstance(node, FunctionDefNode)):
     return generate_func_prototype_ir(node, context)
   elif (isinstance(node, FunctionInvocNode)):

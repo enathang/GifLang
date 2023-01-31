@@ -9,6 +9,7 @@ class LangType(Enum):
   INT = 0
   CHAR = 1
   STR = 2
+  BOOL = 3
 
 
 @dataclass
@@ -38,9 +39,6 @@ class ValueNode:
   value: Any
   type: LangType = None
 
-  def __post_init__(self):
-    self.is_literal: bool = (self.value.type == TokenType.LITERAL)
-
   def __repr__(this):
     return f"[ValueNode, value: {this.value}, is_literal: {this.is_literal}, type: {this.type}]"
 
@@ -51,7 +49,7 @@ class LiteralNode(ValueNode):
 
 
 @dataclass
-class VariableNode(ValueNode):
+class VarNode(ValueNode):
   value: Any
   type: LangType = None
 
@@ -96,7 +94,7 @@ def parse_func_body(token_list):
 def parse_binop(lhs_token, operator, token_list):
   # Handle function def as a special case
   if (operator.value == "->"):
-    arg = ValueNode(lhs_token)
+    arg = parse_identifier(lhs_token)
     func_body = parse_func_body(token_list)
     return FunctionDefNode([arg], func_body)
 
@@ -104,11 +102,11 @@ def parse_binop(lhs_token, operator, token_list):
     if (lhs_token.type != TokenType.IDENTIFIER):
       raise Exception(f"Left-hand sign of assignment should be variable, not {lhs_token.value}")
     
-  lhs = ValueNode(lhs_token)
+  lhs = parse_identifier(lhs_token)
   rhs = parse_token(token_list)
 
   if (isinstance(rhs, FunctionDefNode)):
-    rhs.name = lhs.value.value
+    rhs.name = lhs.value
 
   op_node = BinOpNode(operator, lhs, rhs)
 
@@ -147,28 +145,43 @@ def parse_keyword(token, token_list):
   else:
     raise Exception(f"Unknown keyword {token.value}")
 
+
+def parse_identifier(token):
+  if (token.type in [TokenType.LITERAL_NUM, TokenType.LITERAL_STR, TokenType.LITERAL_BOOL, TokenType.LITERAL_CHAR]):
+    types = {
+      TokenType.LITERAL_NUM: LangType.INT,
+      TokenType.LITERAL_STR: LangType.STR,
+      TokenType.LITERAL_CHAR: LangType.CHAR,
+      TokenType.LITERAL_BOOL: LangType.INT
+    }
+
+    return LiteralNode(token.value, types[token.type])
+
+  else:
+    return VarNode(token.value)
+
+
 def parse_token(token_list):
   token = token_list.pop()
 
   if (token is None):
     raise Exception(f"Token is None")
 
-  elif (token.type == TokenType.LITERAL):
-    value_type = LangType.STR
-    try:  # TODO: Unhack me
-      int(token.value)
-      value_type = LangType.INT
+  elif (token.type in [TokenType.LITERAL_NUM, TokenType.LITERAL_STR, TokenType.LITERAL_BOOL, TokenType.LITERAL_CHAR]):
+    types = {
+      TokenType.LITERAL_NUM: LangType.INT,
+      TokenType.LITERAL_STR: LangType.STR,
+      TokenType.LITERAL_CHAR: LangType.CHAR,
+      TokenType.LITERAL_BOOL: LangType.INT
+    }
 
-    except ValueNode:
-      str(token)
-
-    return ValueNode(token, value_type)
+    return LiteralNode(token.value, types[token.type])
 
   elif (token.type == TokenType.IDENTIFIER):
     next_token = token_list.peek()
 
     if (next_token is None):
-      return ValueNode(token)
+      return VarNode(token.value)
 
     elif (next_token.type == TokenType.OPERATOR):
       operator = token_list.pop()
@@ -178,7 +191,7 @@ def parse_token(token_list):
       return parse_func_invoc(token, token_list)
 
     else:
-      return ValueNode(token)
+      return VarNode(token.value)
 
   elif (token.type == TokenType.KEYWORD):
     return parse_keyword(token, token_list)

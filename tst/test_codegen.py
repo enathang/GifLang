@@ -18,7 +18,7 @@ def test_simple_assignment():
   x_addr = generate_alloca(".2", ir.IntType(32), context)
   context.builder.store(ir.Constant(ir.IntType(32), 5), x_addr)
   x = context.builder.load(x_addr, "x")
-  context.builder.fadd(x, ir.Constant(ir.IntType(32), 1))
+  context.builder.add(x, ir.Constant(ir.IntType(32), 1), "addtmp")
 
   expected_ir = context.entry_function
 
@@ -26,4 +26,4 @@ def test_simple_assignment():
   Generator.generate_ir(syntax_tree, test_context)
   ir = test_context.entry_function
 
-  assert expected_ir == ir, f"Expected: {expected_ir}, actual: {ir}"
+  assert str(expected_ir) == str(ir), f"Expected: {expected_ir}, actual: {ir}"
