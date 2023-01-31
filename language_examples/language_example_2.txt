@@ -1,10 +1,13 @@
-let func = a -> {
-  return a
+x = 5
+y=x+1
+
+# Takes the max of two numbers
+max = a, b -> {
+    if (a < b) {
+        return b
+    } else {
+        return a
+    }
 }
 
-let a = 0
-let b = func(a)
-a = 1
-// Should print
-print(a)
-print(b)
+z = func(y)

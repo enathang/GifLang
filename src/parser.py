@@ -1,13 +1,19 @@
-import lexer as Lexer
-from lexer import Token, TokenType
+from dataclasses import dataclass
+from typing import List, Any
 
-class Node():
-  def __init__(this, token):
-    this.token = token
-    this.children = []
+from enum import Enum
+from src import lexer as Lexer
+from src.lexer import Token, TokenType
 
-  def add_child(this, node):
-    this.children.append(node)
+class LangType(Enum):
+  INT = 0
+  CHAR = 1
+  STR = 2
+
+
+@dataclass
+class Node:
+  token: str
 
   def __repr__(this):
     if (len(this.children) == 0):
@@ -15,64 +21,181 @@ class Node():
 
     return f"[{this.token}, children: {this.children}]"
 
+@dataclass
+class BlockNode:
+  statements: List[Node]
 
-def parse_token(token_list, index, parent_token):
-  if (index >= len(token_list)):
-    # return None, index+1
-    raise Exception(f"Parser went out of bounds when trying to associate node (index: {index}, length: {len(token_list)}), context: (file: {parent_token.context.file_name}, line: {parent_token.context.line_number}, token: {parent_token})")
-  
-  token = token_list[index]  
+@dataclass
+class FunctionInvocNode:
+  name: str
+  args: List[Node]
 
-  node = Node(token)
-  if (True):
-    if (token.type == TokenType.LITERAL):
-      return node, index + 1
+  def __repr__(this):
+    return f"[FunctionInvocNode, name: {this.name}, args: {this.args}]"
+
+@dataclass
+class ValueNode:
+  value: Any
+  type: LangType = None
+
+  def __post_init__(self):
+    self.is_literal: bool = (self.value.type == TokenType.LITERAL)
+
+  def __repr__(this):
+    return f"[ValueNode, value: {this.value}, is_literal: {this.is_literal}, type: {this.type}]"
+
+@dataclass
+class LiteralNode(ValueNode):
+  value: Any
+  type: LangType = None
+
+
+@dataclass
+class VariableNode(ValueNode):
+  value: Any
+  type: LangType = None
+
+@dataclass
+class FunctionDefNode:
+  args: List[ValueNode]
+  body: BlockNode
+  name: str = None
+
+@dataclass
+class BinOpNode:
+  op: Token
+  left: Node
+  right: Node
+
+  def __repr__(this):
+    return f"[BinOpNode, op: {this.op}, left: {this.left}, right: {this.right}]"
+
+
+@dataclass
+class ReturnNode:
+  val: ValueNode = None
+
+
+def parse_func_body(token_list):
+  next_token = token_list.peek()
+  if (next_token is None or next_token.value != '{'):
+    raise Exception("Expected {")
+
+  token_list.pop()  # Eat {
+  statements = []
+  while (token_list.peek().value != '}'):
+    statement = parse_token(token_list)
+    statements.append(statement)
+
+  token_list.pop()  # Eat }
+
+  func_body = BlockNode(statements)
+  return func_body
+
+
+def parse_binop(lhs_token, operator, token_list):
+  # Handle function def as a special case
+  if (operator.value == "->"):
+    arg = ValueNode(lhs_token)
+    func_body = parse_func_body(token_list)
+    return FunctionDefNode([arg], func_body)
+
+  if (operator.value == "="):
+    if (lhs_token.type != TokenType.IDENTIFIER):
+      raise Exception(f"Left-hand sign of assignment should be variable, not {lhs_token.value}")
     
-    if (token.type == TokenType.ASSIGNMENT):
-      l_assoc, l_assoc_n = parse_token(token_list, index+1, parent_token)
-      m_assoc, m_assoc_n = parse_token(token_list, l_assoc_n, parent_token)
-      r_assoc, r_assoc_n = parse_token(token_list, m_assoc_n, parent_token)
+  lhs = ValueNode(lhs_token)
+  rhs = parse_token(token_list)
 
-      if (l_assoc.token.type != TokenType.LITERAL):
-        raise Exception(f"Expected a variable name, not {l_assoc.token}")
-      if (m_assoc.token.type != TokenType.SYMBOL):
-        raise Exception(f"Expected =, not {m_assoc.token}")
-      if (r_assoc.token.type != TokenType.LITERAL):
-        raise Exception(f"Expected a variable name, not {r_assoc.token}")
-    
-      node.add_child(l_assoc)
-      node.add_child(r_assoc)
-      return node, r_assoc_n
-    
-    if (token.type == TokenType.SYMBOL):
-      return node, index + 1        
+  if (isinstance(rhs, FunctionDefNode)):
+    rhs.name = lhs.value.value
 
-    if (token.type == TokenType.BEGINPARAMETERS):
-      next_node, next_index = parse_token(token_list, index+1, parent_token)
-      while (next_node.token.type != TokenType.ENDPARAMETERS):
-        node.add_child(next_node)
-        next_node, next_index = parse_token(token_list, next_index, parent_token)
+  op_node = BinOpNode(operator, lhs, rhs)
 
-      # Probably can add endparameters to children of this node, but may want to remove in future
-      node.add_child(next_node)
+  return op_node
 
-      return node, next_index
 
-    if (token.type == TokenType.ENDPARAMETERS):
-      return node, index + 1
+def parse_func_invoc(func_name, token_list):
+  token_list.pop()  # Eat '('
+  arg_list = []
 
-  raise Exception(f"Unknown token type: {token.type}")
+  while token_list.peek() is not None and token_list.peek().type != TokenType.CLOSE_SEPARATOR:
+    if token_list.peek().type == TokenType.MID_SEPARATOR:
+      token_list.pop()
+      continue
+
+    arg_node = parse_token(token_list)
+    arg_list.append(arg_node)
+
+  token_list.pop()  # Eat ')'
+  func_invoc_node = FunctionInvocNode(func_name.value, arg_list)
+  return func_invoc_node
+
+
+def parse_keyword(token, token_list):
+  if (token.value == "return"):
+    next_token = token_list.peek()
+
+    if (next_token is None):
+      return ReturnNode()
+    elif (next_token.type == TokenType.LITERAL or next_token.type == TokenType.IDENTIFIER):
+      ret_val = parse_token(token_list)
+      return ReturnNode(ret_val)
+    else:
+      return ReturnNode()
+
+  else:
+    raise Exception(f"Unknown keyword {token.value}")
+
+def parse_token(token_list):
+  token = token_list.pop()
+
+  if (token is None):
+    raise Exception(f"Token is None")
+
+  elif (token.type == TokenType.LITERAL):
+    value_type = LangType.STR
+    try:  # TODO: Unhack me
+      int(token.value)
+      value_type = LangType.INT
+
+    except ValueNode:
+      str(token)
+
+    return ValueNode(token, value_type)
+
+  elif (token.type == TokenType.IDENTIFIER):
+    next_token = token_list.peek()
+
+    if (next_token is None):
+      return ValueNode(token)
+
+    elif (next_token.type == TokenType.OPERATOR):
+      operator = token_list.pop()
+      return parse_binop(token, operator, token_list)
+
+    elif (next_token.type == TokenType.OPEN_SEPARATOR):
+      return parse_func_invoc(token, token_list)
+
+    else:
+      return ValueNode(token)
+
+  elif (token.type == TokenType.KEYWORD):
+    return parse_keyword(token, token_list)
+
+  else:
+    raise Exception(f"Unknown token type {token.type}")
 
 
 def generate_ast(token_list):
-  root = Node(Token(TokenType.SCOPE, "", None))
+  tokens = Lexer.TokenList(token_list)
+  statements = []
 
-  token_refr_index = 0
+  while tokens.index < len(token_list):
+    node = parse_token(tokens)
+    statements.append(node)
 
-  while (token_refr_index < len(token_list)):
-    node, token_refr_index = parse_token(token_list, token_refr_index, token_list[token_refr_index])
-    root.add_child(node)
-
+  root = BlockNode(statements)
   return root
 
 

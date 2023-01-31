@@ -2,7 +2,7 @@ import argparse
 
 import lexer as Lexer
 import parser as Parser
-import semantic_analyzer as Analyzer
+import semantics as Analyzer
 import llvm_generator as Generator
 
 argparser = argparse.ArgumentParser()
@@ -25,8 +25,11 @@ ast_root = Parser.parse(tokens)
 print(ast_root)
 
 print_line("Semantic analysis")
-analysis = Analyzer.verify_ast(ast_root, None)
+analysis = Analyzer.verify_ast(ast_root)
 
 print_line("Generate LLVM IR")
-llvm_ir = Generator.generate_ir_top_level(ast_root)
-print(llvm_ir)
+llvm_context = Generator.init(__file__)
+Generator.generate_ir(ast_root, llvm_context)
+print(llvm_context.module.functions)
+Generator.generate_object_file(llvm_context.module)
+

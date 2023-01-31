@@ -1,44 +1,63 @@
+from dataclasses import dataclass
 from enum import Enum
 import re
 
+
 class TokenType(Enum):
-  SCOPE = 0
-  LITERAL = 1
-  ASSIGNMENT = 2
-  SYMBOL = 3
-  WHITESPACE = 4
-  VARIABLE = 5
-  BEGINPARAMETERS = 6
-  ENDPARAMETERS = 7
+    SCOPE = 0
+    LITERAL = 1  # 1.0, 'x'
+    WHITESPACE = 4
+    OPERATOR = 8  # +, -, =
+    KEYWORD = 9  # let, if
+    OPEN_SEPARATOR = 10  # (, [, {
+    MID_SEPARATOR = 11
+    CLOSE_SEPARATOR = 12  # ), ], }
+    IDENTIFIER = 13  # a, i, func_name
+
+    def __eq__(self, other):
+        return self.name == other.name and self.value == other.value
 
 
-class TokenContext():
-  def __init__(this, file_name, line_number):
-    this.file_name = file_name
-    this.line_number = line_number
-  
+@dataclass
+class Token:
+    type: TokenType
+    value: str
 
-class Token():
-  def __init__(this, type, value, context):
-    this.type = type
-    this.value = value
-    this.context = context
+    def __repr__(this):
+        return f"[{this.type.name}, '{this.value}']"
 
-  def __str__(this):
-    return f"[{this.type.name}, '{this.value}']"
 
-  def __repr__(this):
-    return f"[{this.type.name}, '{this.value}']"
+class TokenList:
+    def __init__(this, tokens):
+        this.tokens = tokens
+        this.index = 0
+
+    def pop(this):
+        current_token = this.tokens[this.index]
+        this.index += 1
+        return current_token
+
+    def peek(this, num_elem_ahead=0):
+        if (this.index + num_elem_ahead >= len(this.tokens)):
+            return None
+
+        return this.tokens[this.index + num_elem_ahead]
+
+    def at_end(this):
+        return (this.peek(0) is None)
 
 
 token_map = {
-  "let ": TokenType.ASSIGNMENT,
-  "=|->": TokenType.SYMBOL,
-  "[A-Za-z0-9]{1,}[ |=|\n]": TokenType.LITERAL,
-  "[0-9]": TokenType.LITERAL,
-  " |\t|\n": TokenType.WHITESPACE,
-  "[A-Za-z]{1,}\(": TokenType.BEGINPARAMETERS,
-  "\)": TokenType.ENDPARAMETERS
+    "^let\Z|^if\Z|^return\Z": TokenType.KEYWORD,
+    "^=\Z|^\->\Z|^\+\Z|^\-\Z": TokenType.OPERATOR,
+    "^{\Z|^\(\Z|^\[\Z": TokenType.OPEN_SEPARATOR,
+    "^\}\Z|^\)\Z|^\]\Z": TokenType.CLOSE_SEPARATOR,
+    "^,\Z": TokenType.MID_SEPARATOR,
+    "^true\Z|^false\Z": TokenType.LITERAL,
+    "^[0-9]{1,}(?!\s)\Z": TokenType.LITERAL,
+    "['[A-Za-z0-9]{1,}']": TokenType.LITERAL,
+    "^[A-Za-z]{1,}\Z": TokenType.IDENTIFIER,
+    "^\s$": TokenType.WHITESPACE,
 }
 
 
@@ -46,65 +65,76 @@ token_map = {
 #   If there is one possibility, return that token type
 #   If there are multiple possibilities, return None
 #   If there are no possibilities, throw an error with the invalid token string 
-def determine_token_type(string, token_map):
-  token_regex_list = token_map.keys()
-  token_type = None
+def determine_token_type(string, next_char, token_map):
+    token_regex_list = reversed(list(token_map.keys()))  # Note: Only works with Python3.7 and above
+    token_type = None
+    is_terminal = True
 
-  for token_regex in token_regex_list:
-    token_pattern = re.compile(token_regex)
-    if (re.search(token_pattern, string) is not None):
-      return token_map[token_regex]
-      '''
-      if (token_type is None):
-        token_type = token_map[token_regex]
-      else:
-        return None #If there are multiple possible token matches, we do not return a token
-      '''
+    for token_regex in token_regex_list:
+        token_pattern = re.compile(token_regex)
 
-  if token_type is None and len(string) > 10: # Hacky
-    raise Exception("Unable to match token to: "+string)
+        if (re.search(token_pattern, string) is not None):
+            token_type = token_map[token_regex]
 
-  return token_type
+        if (next_char is not None and re.search(token_pattern, string + next_char) is not None):
+            is_terminal = False
 
-
-def determine_token(plaintext, token_map, token_context):
-  token_type = determine_token_type(plaintext, token_map)
-  if (token_type is not None):
-    return Token(token_type, plaintext, token_context)
-
-  return None
+    if (token_type is None):
+        raise Exception(f"Unexpected token: {string}")
+    elif (is_terminal):
+        return token_type
+    else:
+        return None
 
 
-def tokenize(plaintext, token_map, context):
-  token_list = []
-  token_so_far = ""
+def determine_token(plaintext, next_char, token_map):
+    token_type = determine_token_type(plaintext, next_char, token_map)
+    if (token_type is not None):
+        return Token(token_type, plaintext)
 
-  for char in plaintext:
-    token_so_far += char
-    token = determine_token(token_so_far, token_map, context)
-    if (token is not None):
-      if (token.type is not TokenType.WHITESPACE): # We can safely eliminate whitespace
-        token_list.append(token)
-      token_so_far = ""
+    return None
 
-  if (len(token_so_far) > 0):
-    raise Exception(f"Last part of plaintext could not be tokenized: '{token_so_far}'")
 
-  return token_list
-  
+def tokenize(plaintext):
+    token_list = []
+    token_so_far = ""
+
+    for char_index in range(len(plaintext)):
+        char = plaintext[char_index]
+        token_so_far += char
+
+        # Immediately return for comments
+        if (token_so_far == "#"):
+            return token_list
+
+        if (char_index == len(plaintext) - 1):
+            next_char = None
+        else:
+            next_char = plaintext[char_index + 1]
+
+        token = determine_token(token_so_far, next_char, token_map)
+        if (token is not None):
+            if (token.type is not TokenType.WHITESPACE):  # We can safely eliminate whitespace
+                token_list.append(token)
+            token_so_far = ""
+
+    if (len(token_so_far) > 0):
+        raise Exception(f"Last part of plaintext could not be tokenized: '{token_so_far}'")
+
+    return token_list
+
 
 def lex(filename):
-  file = open(filename, 'r')
-  file_lines = file.readlines()
+    file = open(filename, 'r')
+    file_lines = file.readlines()
 
-  token_list = []
-  line_number = 0
-  for line in file_lines:
-    context = TokenContext(filename, line_number)
-    tokens = tokenize(line, token_map, context)
-    token_list += tokens
-    line_number+=1
+    token_list = []
+    line_number = 0
+    for line in file_lines:
+        tokens = tokenize(line)
+        token_list += tokens
+        line_number += 1
 
-  file.close()
+    file.close()
 
-  return token_list
+    return token_list

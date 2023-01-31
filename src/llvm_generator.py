@@ -1,24 +1,21 @@
-from lexer import TokenType
+from parser import BlockNode, BinOpNode, FunctionDefNode, FunctionInvocNode, ReturnNode, ValueNode
 
 from llvmlite import ir
 from llvmlite import binding as llvm
 
-
 # Define types here
-int = ir.IntType(32)
-void = ir.VoidType()
-print_func_type = ir.FunctionType(int, [])
+int_t = ir.IntType(32)
+void_t = ir.VoidType()
+print_func_type = ir.FunctionType(void_t, [])
 
 
-# Define module
-module = ir.Module(name=__file__)
-named_values = {}
-
-
-# Define entry function here
-entry_function = ir.Function(module, print_func_type, "entry_function")
-entry_block = entry_function.append_basic_block('entry')
-builder = ir.IRBuilder(entry_block)
+class Context:
+  def __init__(self, module_name):
+    self.module = ir.Module(module_name)
+    self.entry_function = ir.Function(self.module, print_func_type, "entry_function")
+    self.entry_block = self.entry_function.append_basic_block('entry')
+    self.builder = ir.IRBuilder(self.entry_block)
+    self.named_values = {}
 
 
 def optimize(llvm_ir):
@@ -29,10 +26,10 @@ def optimize(llvm_ir):
   
   pass_manager.run(llvm_ir) # Optimize the LLVM IR
  
-'''
+
 def verify_function(llvm_ir):
   ir.Verifier.verifyFunction()
-'''
+
 
 def generate_object_file(llvm_ir):
   llvm.initialize_native_target()
@@ -48,43 +45,156 @@ def generate_object_file(llvm_ir):
   object = target_machine.emit_object(llvm_mod)
 
   # Output object code to a file.
-  object_filename = '../bin/output.o'
+  object_filename = '/Users/nathangifford/Desktop/compiler/bin/output.o'
   with open(object_filename, 'wb') as obj_file:
     obj_file.write(object)
     print('Wrote ' + object_filename)
 
 
-def generate_ir(node):
-  if (node.token.type == TokenType.ASSIGNMENT):
-    key = node.children[0].token.value
-    value = node.children[1].token.value
-    
-    value_ir = ir.Constant(int, value)
- 
-    # Allocate memory for the variable, store it, and add the pointer to the values table
-    alloca = builder.alloca(int)
-    builder.store(value_ir, alloca)
-    named_values[key] = alloca
+def generate_alloca(name, type, context):
+  current_block = context.builder.block
 
-  if (node.token.type == TokenType.LITERAL):
-    cons = ir.Constant(context, int(node.token.value))
-    print(cons)
-    return cons
+  context.builder.position_at_start(context.builder.block.function.entry_basic_block)
+  addr = context.builder.alloca(type, None, name)
+  context.builder.position_at_end(current_block)
 
-  if (node.token.type == TokenType.SCOPE):
-    for child in node.children:
-      generate_ir(child)
-  
-    builder.ret(int(0))
+  return addr
 
-  return module
 
-def generate_ir_top_level(node):
-  llvm.initialize() # Not sure what this does...
-  ir_module = generate_ir(node)
-  # verify_function(entry_function)
-  print(ir_module)
-  generate_object_file(ir_module)
-  
-  return ir_module
+def generate_assignment_ir(node, context):
+  key = node.left.value.value
+  value = generate_ir(node.right, context)
 
+  # Allocate memory for the variable, store it, and add the pointer to the values table
+  if (not isinstance(value, FunctionDefNode) and not isinstance(value, list)):
+    addr = context.builder.alloca(int_t)
+    context.builder.store(value, addr)
+    context.named_values[key] = addr
+
+
+def generate_binop_ir(node, context):
+  if (node.op.value == "="):
+    return generate_assignment_ir(node, context)
+
+  lhs = generate_ir(node.left, context)
+  rhs = generate_ir(node.right, context)
+  if (node.op.value == "+"):
+    return context.builder.add(lhs, rhs, "addtmp")
+  elif (node.op.value == "-"):
+    return context.builder.sub(lhs, rhs, "subtmp")
+  elif (node.op.value == "*"):
+    return context.builder.mul(lhs, rhs, "subtmp")
+  else:
+    raise Exception(f"Unknown binary operation {node.op.value}")
+
+
+def generate_block_ir(node, context):
+  statements_ir = []
+  for statement in node.statements:
+      statement_ir = generate_ir(statement, context)
+      statements_ir.append(statement_ir)
+
+  return statements_ir
+
+
+def generate_value_ir(node, context):
+  if (node.is_literal):
+    return ir.Constant(int_t, node.value.value)  # TODO: Expand to non-int types
+  else:
+    var_name = node.value.value
+    var_addr = context.named_values.get(var_name)
+    if (var_addr is None):
+      raise Exception(f"Undeclared variable {var_name} used")
+
+    return context.builder.load(var_addr, var_name)
+
+
+def get_type_of_value(node, context):
+  # If the value is a literal, grab it directly
+  if (node.val.is_literal):
+    return node.type
+
+  # Otherwise, look up the type from the declaration
+  return context.named_values[node.val.value.value].type
+
+
+def generate_func_prototype_ir(node, context):
+  if (node.name in context.module.globals):
+    raise Exception(f"Function name {node.name} already declared")
+
+  arg_types = []
+  for arg in node.args:
+    var_addr = generate_alloca(arg.value.value, int_t, context)
+    context.named_values[arg.value.value] = var_addr
+    arg_types.append(context.named_values[arg.value.value].type)
+
+  ret_type = None
+  for statement in node.body.statements:
+    if (isinstance(statement, ReturnNode)):
+      new_ret_type = get_type_of_value(statement, context)
+
+      if (ret_type is None):
+        ret_type = new_ret_type
+      else:
+        if (ret_type != new_ret_type):
+          raise Exception(f"Mismatching return types for {node.name}: {ret_type} and {new_ret_type}")
+
+  if (ret_type is None):
+    raise Exception(f"Function {node.name} missing return")
+
+  # Save current writing position
+  current_block = context.entry_block
+
+  # Create new function + block
+  func_type = ir.FunctionType(ret_type, arg_types)
+  func = ir.Function(context.module, func_type, node.name)
+  func_entry_block = func.append_basic_block('entry')
+
+  # Write to new function + block
+  context.builder.position_at_start(func_entry_block)
+  func_body_ir = generate_ir(node.body, context)
+
+  # Reset builder position back to previous writing position
+  context.builder.position_at_end(current_block)
+
+  return func_body_ir
+
+
+def generate_return_ir(node, context):
+  if (node.val is None):
+    context.builder.ret_void()
+  else:
+    context.builder.ret(node.val.value.value)
+
+
+def generate_func_invoc_ir(node, context):
+  called_func = context.module.get_global(node.name)
+  if (called_func is None):
+    raise Exception(f"Undeclared function {node.name}")
+
+  args = [generate_ir(arg, context) for arg in node.args]
+
+  return context.builder.call(called_func, args)
+
+
+def generate_ir(node, context):
+  if (isinstance(node, BlockNode)):
+    return generate_block_ir(node, context)
+  elif (isinstance(node, BinOpNode)):
+    return generate_binop_ir(node, context)
+  elif (isinstance(node, ValueNode)):
+    return generate_value_ir(node, context)
+  elif (isinstance(node, FunctionDefNode)):
+    return generate_func_prototype_ir(node, context)
+  elif (isinstance(node, FunctionInvocNode)):
+    return generate_func_invoc_ir(node, context)
+  elif (isinstance(node, ReturnNode)):
+    return generate_return_ir(node, context)
+  else:
+    raise Exception(f"Unknown node type {node}")
+
+
+def init(module_name):
+  context = Context(module_name)
+  llvm.initialize()  # Not sure what this does...
+  return context
