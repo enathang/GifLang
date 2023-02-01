@@ -1,3 +1,5 @@
+import pytest
+
 from src import lexer as Lexer
 from tst.program_examples import *
 
@@ -55,3 +57,14 @@ def test_type_lexing():
     token_list = Lexer.tokenize(test_string)
     assert 1 == len(token_list)
     assert expected_type_results[test_string] == token_list[0]
+
+def test_lex_typing_errors():
+  open_string = "\"str"
+
+  with pytest.raises(Exception):
+    Lexer.tokenize(open_string)
+
+  open_char = "'c"
+
+  with pytest.raises(Exception):
+    Lexer.tokenize(open_char)

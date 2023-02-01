@@ -100,6 +100,9 @@ def determine_token_type(string, next_char, token_map):
 def determine_token(plaintext, next_char, token_map):
     token_type = determine_token_type(plaintext, next_char, token_map)
     if (token_type is not None):
+        if (token_type == TokenType.UNKNOWN):
+            raise Exception(f"Unknown token {plaintext}")
+
         if (token_type == TokenType.LITERAL_CHAR):
             plaintext = plaintext[1:-1]  # Remove ''
         elif (token_type == TokenType.LITERAL_STR):

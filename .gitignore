@@ -1,0 +1,6 @@
+# Ignore any cached python files
+src/__pycache__
+tst/__pycache__
+
+# Ignore bin output folder
+bin/
