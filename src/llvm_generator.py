@@ -1,4 +1,4 @@
-from src.parser import BlockNode, BinOpNode, FunctionDefNode, FunctionInvocNode, ReturnNode, \
+from src.parser import BlockNode, BinOpNode, FunctionNode, FunctionInvocNode, ReturnNode, \
   VarNode, LiteralNode, LangType
 
 from llvmlite import ir
@@ -11,6 +11,13 @@ bool_t = ir.IntType(1)
 void_t = ir.VoidType()
 
 void_func_type = ir.FunctionType(void_t, [])
+
+type_map = {
+  LangType.INT: int_t,
+  LangType.CHAR: char_t,
+  LangType.BOOL: bool_t,
+  LangType.VOID: void_t
+}
 
 
 class Context:
@@ -70,7 +77,7 @@ def generate_assignment_ir(node, context):
   value = generate_ir(node.right, context)
 
   # Allocate memory for the variable, store it, and add the pointer to the values table
-  if (not isinstance(value, FunctionDefNode) and not isinstance(value, list)):
+  if (not isinstance(value, FunctionNode) and not isinstance(value, list)):
     addr = context.builder.alloca(int_t)
     context.builder.store(value, addr)
     context.named_values[key] = addr
@@ -102,12 +109,6 @@ def generate_block_ir(node, context):
 
 
 def generate_literal_ir(node: LiteralNode):
-  type_map = {
-    LangType.INT: int_t,
-    LangType.CHAR: char_t,
-    LangType.BOOL: bool_t
-  }
-
   return ir.Constant(type_map[node.type], node.value)
 
 def generate_var_ir(node: VarNode, context: Context):
@@ -119,45 +120,36 @@ def generate_var_ir(node: VarNode, context: Context):
   return context.builder.load(var_addr, var_name)
 
 
-def get_type_of_value(node, context):
-  # If the value is a literal, grab it directly
-  if (node.val.is_literal):
-    return node.type
+def get_type_of_value(node, context) -> ir.Type:
+  if (node is None):
+    return type_map[LangType.VOID]
+  elif (isinstance(node, LiteralNode)):
+    return type_map[node.type]
 
   # Otherwise, look up the type from the declaration
-  return context.named_values[node.val.value.value].type
+  return context.named_values[node.value].type
 
 
-def generate_func_prototype_ir(node, context):
-  if (node.name in context.module.globals):
-    raise Exception(f"Function name {node.name} already declared")
+def generate_func_ir(node: FunctionNode, context):
+  prototype = node.prototype
+  body = node.body
+  if (prototype.name in context.module.globals):
+    raise Exception(f"Function name {prototype.name} already declared")
 
   arg_types = []
-  for arg in node.args:
-    var_addr = generate_alloca(arg.value.value, int_t, context)
-    context.named_values[arg.value.value] = var_addr
-    arg_types.append(context.named_values[arg.value.value].type)
+  for arg in prototype.args:
+    var_addr = generate_alloca(arg.value, type_map[arg.type], context)
+    context.named_values[arg.value] = var_addr
+    arg_types.append(context.named_values[arg.value].type)
 
-  ret_type = None
-  for statement in node.body.statements:
-    if (isinstance(statement, ReturnNode)):
-      new_ret_type = get_type_of_value(statement, context)
-
-      if (ret_type is None):
-        ret_type = new_ret_type
-      else:
-        if (ret_type != new_ret_type):
-          raise Exception(f"Mismatching return types for {node.name}: {ret_type} and {new_ret_type}")
-
-  if (ret_type is None):
-    raise Exception(f"Function {node.name} missing return")
+  ret_type = type_map[prototype.return_type]
 
   # Save current writing position
   current_block = context.entry_block
 
   # Create new function + block
   func_type = ir.FunctionType(ret_type, arg_types)
-  func = ir.Function(context.module, func_type, node.name)
+  func = ir.Function(context.module, func_type, prototype.name)
   func_entry_block = func.append_basic_block('entry')
 
   # Write to new function + block
@@ -170,11 +162,11 @@ def generate_func_prototype_ir(node, context):
   return func_body_ir
 
 
-def generate_return_ir(node, context):
-  if (node.val is None):
+def generate_return_ir(node: ReturnNode, context):
+  if (node.value is None):
     context.builder.ret_void()
   else:
-    context.builder.ret(node.val.value.value)
+    context.builder.ret(get_type_of_value(node.value, context))
 
 
 def generate_func_invoc_ir(node, context):
@@ -196,8 +188,8 @@ def generate_ir(node, context):
     return generate_var_ir(node, context)
   elif (isinstance(node, LiteralNode)):
     return generate_literal_ir(node)
-  elif (isinstance(node, FunctionDefNode)):
-    return generate_func_prototype_ir(node, context)
+  elif (isinstance(node, FunctionNode)):
+    return generate_func_ir(node, context)
   elif (isinstance(node, FunctionInvocNode)):
     return generate_func_invoc_ir(node, context)
   elif (isinstance(node, ReturnNode)):

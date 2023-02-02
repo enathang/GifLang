@@ -9,20 +9,19 @@ class TokenType(Enum):
     WHITESPACE = 4
     OPERATOR = 8  # +, -, =
     KEYWORD = 9  # let, if
-    OPEN_SEPARATOR = 10  # (, [, {
-    MID_SEPARATOR = 11
-    CLOSE_SEPARATOR = 12  # ), ], }
+    SEPARATOR = 11
     IDENTIFIER = 13  # a, i, func_name
     LITERAL_NUM = 14
     LITERAL_BOOL = 15
     LITERAL_CHAR = 16
     LITERAL_STR = 17
     UNKNOWN = 18
-
-    '''
-    def __eq__(self, other):
-        return self.name == other.name and self.value == other.value
-    '''
+    TYPE_KEYWORD = 19
+    TYPE_DEF = 20
+    OPEN_BRACE = 21
+    CLOSE_BRACE = 22
+    OPEN_PARENS = 23
+    CLOSE_PARENS = 24
 
 
 @dataclass
@@ -39,27 +38,31 @@ class TokenList:
         this.tokens = tokens
         this.index = 0
 
-    def pop(this):
+    def pop(this) -> TokenType:
         current_token = this.tokens[this.index]
         this.index += 1
         return current_token
 
-    def peek(this, num_elem_ahead=0):
+    def peek(this, num_elem_ahead=0) -> TokenType:
         if (this.index + num_elem_ahead >= len(this.tokens)):
             return None
 
         return this.tokens[this.index + num_elem_ahead]
 
-    def at_end(this):
+    def at_end(this) -> bool:
         return (this.peek(0) is None)
 
 
 token_map = {
-    "^let\Z|^if\Z|^return\Z": TokenType.KEYWORD,
+    "^let\Z|^if\Z|^return\Z|^def\Z": TokenType.KEYWORD,
+    "^Int\Z|^Char\Z|^Bool\Z|^Void\Z": TokenType.TYPE_KEYWORD,
+    "^:\Z": TokenType.TYPE_DEF,
     "^=\Z|^\->\Z|^\+\Z|^\-\Z": TokenType.OPERATOR,
-    "^{\Z|^\(\Z|^\[\Z": TokenType.OPEN_SEPARATOR,
-    "^\}\Z|^\)\Z|^\]\Z": TokenType.CLOSE_SEPARATOR,
-    "^,\Z": TokenType.MID_SEPARATOR,
+    "^{\Z": TokenType.OPEN_BRACE,
+    "^\(\Z": TokenType.OPEN_PARENS,
+    "^}\Z": TokenType.CLOSE_BRACE,
+    "^\)\Z": TokenType.CLOSE_PARENS,
+    "^,\Z": TokenType.SEPARATOR,
     "^true\Z|^false\Z": TokenType.LITERAL_BOOL,
     "^[0-9]+\Z": TokenType.LITERAL_NUM,
     "^\'[A-Za-z0-9]{0,}\Z": TokenType.UNKNOWN,  # Unclosed char

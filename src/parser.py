@@ -3,13 +3,22 @@ from typing import List, Any
 
 from enum import Enum
 from src import lexer as Lexer
-from src.lexer import Token, TokenType
+from src.lexer import Token, TokenList, TokenType
 
 class LangType(Enum):
   INT = 0
   CHAR = 1
   STR = 2
   BOOL = 3
+  VOID = 4
+
+
+type_map = {
+  "Int": LangType.INT,
+  "Char": LangType.CHAR,
+  "Bool": LangType.BOOL,
+  "Void": LangType.VOID
+}
 
 
 @dataclass
@@ -53,11 +62,17 @@ class VarNode(ValueNode):
   value: Any
   type: LangType = None
 
+
 @dataclass
-class FunctionDefNode:
+class FunctionPrototypeNode:
+  name: str
   args: List[ValueNode]
+  return_type: LangType
+
+@dataclass
+class FunctionNode:
+  prototype: FunctionPrototypeNode
   body: BlockNode
-  name: str = None
 
 @dataclass
 class BinOpNode:
@@ -71,67 +86,97 @@ class BinOpNode:
 
 @dataclass
 class ReturnNode:
-  val: ValueNode = None
-
-
-def parse_func_body(token_list):
-  next_token = token_list.peek()
-  if (next_token is None or next_token.value != '{'):
-    raise Exception("Expected {")
-
-  token_list.pop()  # Eat {
-  statements = []
-  while (token_list.peek().value != '}'):
-    statement = parse_token(token_list)
-    statements.append(statement)
-
-  token_list.pop()  # Eat }
-
-  func_body = BlockNode(statements)
-  return func_body
+  value: ValueNode = None
 
 
 def parse_binop(lhs_token, operator, token_list):
-  # Handle function def as a special case
-  if (operator.value == "->"):
-    arg = parse_identifier(lhs_token)
-    func_body = parse_func_body(token_list)
-    return FunctionDefNode([arg], func_body)
-
   if (operator.value == "="):
     if (lhs_token.type != TokenType.IDENTIFIER):
       raise Exception(f"Left-hand sign of assignment should be variable, not {lhs_token.value}")
     
   lhs = parse_identifier(lhs_token)
   rhs = parse_token(token_list)
-
-  if (isinstance(rhs, FunctionDefNode)):
-    rhs.name = lhs.value
-
   op_node = BinOpNode(operator, lhs, rhs)
 
   return op_node
 
 
-def parse_func_invoc(func_name, token_list):
-  token_list.pop()  # Eat '('
-  arg_list = []
+def parse_func_invoc(func_name: VarNode, token_list: TokenList):
+  args = parse_list(token_list)
+  func_invoc_node = FunctionInvocNode(func_name.value, args)
 
-  while token_list.peek() is not None and token_list.peek().type != TokenType.CLOSE_SEPARATOR:
-    if token_list.peek().type == TokenType.MID_SEPARATOR:
-      token_list.pop()
-      continue
-
-    arg_node = parse_token(token_list)
-    arg_list.append(arg_node)
-
-  token_list.pop()  # Eat ')'
-  func_invoc_node = FunctionInvocNode(func_name.value, arg_list)
   return func_invoc_node
 
 
+def parse_list(token_list: TokenList) -> List:
+  list = []
+
+  if (token_list.peek().type != TokenType.OPEN_PARENS):
+    raise Exception(f"Expected list")
+
+  token_list.pop()  # Eat (
+
+  while (token_list.peek().type != TokenType.CLOSE_PARENS):
+    if (token_list.peek().type == TokenType.SEPARATOR):
+      token_list.pop()
+      continue
+
+    elem = parse_token(token_list)
+
+    if (not isinstance(elem, VarNode)):
+      raise Exception(f"Element of list should be identifier, not {elem}")
+
+    list.append(elem)
+
+  token_list.pop()  # Eat )
+  return list
+
+
+def parse_function(token_list):
+  prototype = parse_function_prototype(token_list)
+
+  next_token = token_list.peek()
+  if (next_token is not None and next_token.type == TokenType.OPEN_BRACE):
+    token_list.pop()  # Eat {
+    statements = []
+    while (token_list.peek().value != '}'):
+      statement = parse_token(token_list)
+      statements.append(statement)
+
+    token_list.pop()  # Eat }
+
+    body = BlockNode(statements)
+  else:
+    body = None
+
+  return FunctionNode(prototype, body)
+
+
+def parse_function_prototype(token_list):
+  if (token_list.peek().type != TokenType.IDENTIFIER):
+    raise Exception(f"Expected function def to have correct name")
+
+  name = token_list.pop().value
+  args = parse_list(token_list)
+
+  next_token = token_list.peek()
+  if (next_token.value == "->"):
+    token_list.pop()  # Eat ->
+    return_type_token = token_list.pop()
+    if (return_type_token.type != TokenType.TYPE_KEYWORD):
+      raise Exception(f"Expected a return type after -> for function")
+
+    return_type = type_map[return_type_token.value]
+  else:
+    return_type = LangType.VOID
+
+  return FunctionPrototypeNode(name, args, return_type)
+
 def parse_keyword(token, token_list):
-  if (token.value == "return"):
+  if (token.value == "def"):
+    return parse_function(token_list)
+
+  elif (token.value == "return"):
     next_token = token_list.peek()
 
     if (next_token is None):
@@ -183,11 +228,19 @@ def parse_token(token_list):
     if (next_token is None):
       return VarNode(token.value)
 
+    elif (next_token.type == TokenType.TYPE_DEF):
+      token_list.pop()  # Eat :
+      if (token_list.peek().type != TokenType.TYPE_KEYWORD):
+        raise Exception(f"Expected a type, not {token_list.peek().value}")
+
+      var_type = token_list.pop().value
+      return VarNode(token.value, type_map[var_type])
+
     elif (next_token.type == TokenType.OPERATOR):
       operator = token_list.pop()
       return parse_binop(token, operator, token_list)
 
-    elif (next_token.type == TokenType.OPEN_SEPARATOR):
+    elif (next_token.type == TokenType.OPEN_PARENS):
       return parse_func_invoc(token, token_list)
 
     else:
@@ -197,7 +250,7 @@ def parse_token(token_list):
     return parse_keyword(token, token_list)
 
   else:
-    raise Exception(f"Unknown token type {token.type}")
+    raise Exception(f"Unknown token type {token}")
 
 
 def generate_ast(token_list):

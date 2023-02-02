@@ -2,8 +2,8 @@ from dataclasses import dataclass
 from typing import List
 
 from src.lexer import Token, TokenType
-from src.parser import LangType
-from src.parser import BinOpNode, BlockNode, FunctionDefNode, FunctionInvocNode, VarNode, LiteralNode
+from src.parser import BinOpNode, BlockNode, FunctionNode, FunctionPrototypeNode, FunctionInvocNode, LangType, \
+    LiteralNode, ReturnNode, VarNode
 
 @dataclass
 class LangExample:
@@ -34,28 +34,36 @@ simple_assignment_example = LangExample(
 )
 
 simple_function_def_example = LangExample(
-    plaintext="x = a -> { \n a+1 \n }",
+    plaintext="def x(a: Int) -> Void { \n a+1 \n return \n }",
     tokens = [
+        Token(TokenType.KEYWORD,        "def"),
         Token(TokenType.IDENTIFIER,     "x"),
-        Token(TokenType.OPERATOR,       "="),
+        Token(TokenType.OPEN_PARENS,    "("),
         Token(TokenType.IDENTIFIER,     "a"),
+        Token(TokenType.TYPE_DEF,       ":"),
+        Token(TokenType.TYPE_KEYWORD,   "Int"),
+        Token(TokenType.CLOSE_PARENS,    ")"),
         Token(TokenType.OPERATOR,       "->"),
-        Token(TokenType.OPEN_SEPARATOR, "{"),
+        Token(TokenType.TYPE_KEYWORD,   "Void"),
+        Token(TokenType.OPEN_BRACE,     "{"),
         Token(TokenType.IDENTIFIER,     "a"),
         Token(TokenType.OPERATOR,       "+"),
         Token(TokenType.LITERAL_NUM,    "1"),
-        Token(TokenType.CLOSE_SEPARATOR, "}"),
+        Token(TokenType.KEYWORD,        "return"),
+        Token(TokenType.CLOSE_BRACE,    "}"),
     ],
     syntax_tree=BlockNode([
-        BinOpNode(Token(TokenType.OPERATOR, "="),
-            VarNode("x"),
-            FunctionDefNode(
-                args=[VarNode("a")],
+            FunctionNode(
+                prototype=FunctionPrototypeNode(
+                    name="x",
+                    args=[VarNode("a", LangType.INT)],
+                    return_type=LangType.VOID
+                ),
                 body=BlockNode([
-                    BinOpNode(Token(TokenType.OPERATOR, "+"), VarNode("a"), LiteralNode("1", LangType.INT))
-                ]),
-                name="x"
-            ))
+                    BinOpNode(Token(TokenType.OPERATOR, "+"), VarNode("a"), LiteralNode("1", LangType.INT)),
+                    ReturnNode()
+                ])
+            )
     ])
 )
 
@@ -73,11 +81,11 @@ simple_function_invoc_example = LangExample(
     plaintext="function(a,b)",
     tokens=[
         Token(TokenType.IDENTIFIER, "function"),
-        Token(TokenType.OPEN_SEPARATOR, "("),
+        Token(TokenType.OPEN_PARENS, "("),
         Token(TokenType.IDENTIFIER, "a"),
-        Token(TokenType.MID_SEPARATOR, ","),
+        Token(TokenType.SEPARATOR, ","),
         Token(TokenType.IDENTIFIER, "b"),
-        Token(TokenType.CLOSE_SEPARATOR, ")"),
+        Token(TokenType.CLOSE_PARENS, ")"),
     ],
     syntax_tree=BlockNode([
         FunctionInvocNode(
